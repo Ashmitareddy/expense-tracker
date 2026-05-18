@@ -33,9 +33,11 @@ const ExpenseDashboard = () => {
     setLoading(true);
     try {
       const { data } = await axios.get(API_BASE);
-      setExpenses(data);
+      // Defensively guard frontend state
+      setExpenses(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Failed to fetch expenses', error);
+      setExpenses([]);
     }
     setLoading(false);
   };
@@ -77,7 +79,7 @@ const ExpenseDashboard = () => {
     if (!confirm('Are you sure you want to delete this expense?')) return;
     try {
       await axios.delete(`${API_BASE}/${id}`);
-      setExpenses(expenses.filter(e => e._id !== id));
+      setExpenses(prevExpenses => Array.isArray(prevExpenses) ? prevExpenses.filter(e => e._id !== id) : []);
     } catch (error) {
       console.error('Failed to delete expense', error);
     }
@@ -102,11 +104,11 @@ const ExpenseDashboard = () => {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Left Column */}
       <div className="lg:col-span-2 space-y-6">
-        
+
         {/* Upload Zone */}
         <div className="border-2 border-dashed border-slate-300 rounded-lg p-10 flex flex-col items-center justify-center bg-white transition hover:bg-slate-50 relative overflow-hidden">
-          <input 
-            type="file" 
+          <input
+            type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -175,7 +177,7 @@ const ExpenseDashboard = () => {
                         ${expense.amount.toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button 
+                        <button
                           onClick={() => handleDelete(expense._id)}
                           className="text-slate-400 hover:text-red-600 transition p-1"
                           title="Delete"
@@ -194,7 +196,7 @@ const ExpenseDashboard = () => {
 
       {/* Right Column */}
       <div className="space-y-6">
-        
+
         {/* Total Metric Card */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
           <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-1">Total Expenditure</h3>
@@ -232,7 +234,7 @@ const ExpenseDashboard = () => {
                       <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || CATEGORY_COLORS['Others']} />
                     ))}
                   </Pie>
-                  <Tooltip 
+                  <Tooltip
                     formatter={(value) => `$${value.toFixed(2)}`}
                     contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
