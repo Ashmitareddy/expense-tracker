@@ -9,11 +9,7 @@ import Expense from './models/Expense.js';
 // Load environment variables
 dotenv.config();
 
-// Validation for environment variables
-if (!process.env.PORT) {
-  console.error("CRITICAL ERROR: PORT is not defined in process.env.");
-  process.exit(1);
-}
+// Validation for critical cloud database and AI service keys
 if (!process.env.MONGO_URI) {
   console.error("CRITICAL ERROR: MONGO_URI is not defined in process.env.");
   process.exit(1);
@@ -23,7 +19,7 @@ if (!process.env.GEMINI_API_KEY) {
   process.exit(1);
 }
 
-const PORT = process.env.PORT;
+// Single clean declaration of the Express instance
 const app = express();
 
 // Middleware
@@ -209,12 +205,12 @@ app.get('/api/expenses/insights', async (req, res) => {
   }
 });
 
-// Start Server
+// Unified single PORT setup configuration logic
 const PORT = process.env.PORT || 8082;
 
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    console.log(`Server running locally`);
+    console.log(`Server running locally on port ${PORT}`);
   });
 }
 
