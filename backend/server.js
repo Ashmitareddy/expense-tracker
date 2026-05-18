@@ -29,8 +29,8 @@ app.use(express.json());
 // Set up multer for memory storage (for file uploads)
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Initialize Gemini SDK
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Initialize Gemini SDK with explicit key casting
+const ai = new GoogleGenAI({ apiKey: String(process.env.GEMINI_API_KEY).trim() });
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
@@ -39,30 +39,6 @@ mongoose.connect(process.env.MONGO_URI)
     console.error('Failed to connect to MongoDB:', err);
     process.exit(1);
   });
-
-/**
- * Exponential backoff wrapper for API calls
- */
-const withExponentialBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
-  let attempt = 0;
-  while (attempt < maxRetries) {
-    try {
-      return await fn();
-    } catch (error) {
-      attempt++;
-      if (error.status === 503 || error.status === 429) {
-        if (attempt >= maxRetries) {
-          throw new Error(`Failed after ${maxRetries} attempts due to server overload.`);
-        }
-        const delay = baseDelay * Math.pow(2, attempt - 1);
-        console.warn(`API Overloaded (503/429). Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        throw error; // Throw non-retryable errors immediately
-      }
-    }
-  }
-};
 
 // CRUD Routes for Expenses
 
@@ -123,44 +99,43 @@ app.post('/api/expenses/upload', upload.single('receipt'), async (req, res) => {
     const mimeType = req.file.mimetype;
     const base64Data = req.file.buffer.toString('base64');
 
-    const result = await withExponentialBackoff(() => 
-      ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  data: base64Data,
-                  mimeType: mimeType
-                }
-              },
-              {
-                text: "Extract the details from this receipt or invoice. Return ONLY a valid JSON object matching the requested schema."
+    // Utilize SDK native generation rules completely 
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: mimeType
               }
-            ]
-          }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              merchantName: { type: Type.STRING, description: "The name of the merchant or store." },
-              amount: { type: Type.NUMBER, description: "The total amount of the expense." },
-              category: { 
-                type: Type.STRING, 
-                enum: ['Food', 'Utility', 'Subscriptions', 'Others'],
-                description: "Categorize the expense into one of these four exact categories."
-              },
-              rawTextSummary: { type: Type.STRING, description: "A concise 1-2 sentence summary of what this bill/receipt was for." }
             },
-            required: ["merchantName", "amount", "category", "rawTextSummary"]
-          }
+            {
+              text: "Extract the details from this receipt or invoice. Return ONLY a valid JSON object matching the requested schema."
+            }
+          ]
         }
-      })
-    );
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            merchantName: { type: Type.STRING, description: "The name of the merchant or store." },
+            amount: { type: Type.NUMBER, description: "The total amount of the expense." },
+            category: {
+              type: Type.STRING,
+              enum: ['Food', 'Utility', 'Subscriptions', 'Others'],
+              description: "Categorize the expense into one of these four exact categories."
+            },
+            rawTextSummary: { type: Type.STRING, description: "A concise 1-2 sentence summary of what this bill/receipt was for." }
+          },
+          required: ["merchantName", "amount", "category", "rawTextSummary"]
+        }
+      }
+    });
 
     let expenseData;
     try {
@@ -170,14 +145,13 @@ app.post('/api/expenses/upload', upload.single('receipt'), async (req, res) => {
       return res.status(500).json({ error: 'Failed to parse AI response into structured data.' });
     }
 
-    // Save to DB
     const newExpense = new Expense(expenseData);
     const savedExpense = await newExpense.save();
-    
+
     res.status(201).json(savedExpense);
   } catch (error) {
     console.error('Error processing receipt:', error);
-    res.status(500).json({ error: 'Internal server error processing the receipt.' });
+    res.status(500).json({ error: 'Internal server error processing the receipt.', details: error.message });
   }
 });
 
@@ -191,17 +165,15 @@ app.get('/api/expenses/insights', async (req, res) => {
 
     const summaryData = expenses.map(e => `Amount: $${e.amount}, Category: ${e.category}, Merchant: ${e.merchantName}`).join('; ');
 
-    const result = await withExponentialBackoff(() =>
-      ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `Analyze these recent expenses and provide ONE concise, professional sentence of financial advice based on the user's spending habits: ${summaryData}`,
-      })
-    );
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Analyze these recent expenses and provide ONE concise, professional sentence of financial advice based on the user's spending habits: ${summaryData}`,
+    });
 
     res.json({ insight: result.text.trim() });
   } catch (error) {
     console.error('Error generating insights:', error);
-    res.status(500).json({ error: 'Failed to generate financial insights.' });
+    res.status(500).json({ error: 'Failed to generate financial insights.', details: error.message });
   }
 });
 
